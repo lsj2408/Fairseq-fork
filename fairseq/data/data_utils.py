@@ -17,6 +17,8 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 
+from fairseq.file_io import PathManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 def infer_language_pair(path):
     """Infer language pair from filename: <split>.<lang1>-<lang2>.(...).idx"""
     src, dst = None, None
-    for filename in os.listdir(path):
+    for filename in PathManager.ls(path):
         parts = filename.split(".")
         if len(parts) >= 3 and len(parts[1].split("-")) == 2:
             return parts[1].split("-")
@@ -164,12 +166,6 @@ def _filter_by_size_dynamic(indices, size_fn, max_positions, raise_exception=Fal
                 for key in intersect_keys
             )
         else:
-            # Hacky as heck, for the specific case of multilingual training with RoundRobin.
-            if isinstance(size_fn(idx), dict) and isinstance(max_positions, tuple):
-                return all(
-                    a is None or b is None or compare_leq(a, b)
-                    for a, b in zip(size_fn(idx).values(), max_positions)
-                )
             # For MultiCorpusSampledDataset, will generalize it later
             if not isinstance(size_fn(idx), Iterable):
                 return all(size_fn(idx) <= b for b in max_positions)
@@ -313,8 +309,16 @@ def batch_by_size(
             "Please build Cython components with: `pip install --editable .` "
             "or `python setup.py build_ext --inplace`"
         )
+    except ValueError:
+        raise ValueError(
+            "Please build (or rebuild) Cython components with: `pip install "
+            " --editable .` or `python setup.py build_ext --inplace`."
+        )
 
-    max_tokens = max_tokens if max_tokens is not None else -1
+    # added int() to avoid TypeError: an integer is required
+    max_tokens = (
+        int(max_tokens) if max_tokens is not None else -1
+    )
     max_sentences = max_sentences if max_sentences is not None else -1
     bsz_mult = required_batch_size_multiple
 
@@ -363,8 +367,10 @@ def post_process(sentence: str, symbol: str):
         sentence = sentence.replace(" ", "").replace("|", " ").strip()
     elif symbol == "_EOW":
         sentence = sentence.replace(" ", "").replace("_EOW", " ").strip()
-    elif symbol in {"subword_nmt", "@@ "}:
-        sentence = (sentence + " ").replace("@@ ", "").rstrip()
+    elif symbol in {"subword_nmt", "@@ ", "@@"}:
+        if symbol == "subword_nmt":
+            symbol = "@@ "
+        sentence = (sentence + " ").replace(symbol, "").rstrip()
     elif symbol == "none":
         pass
     elif symbol is not None:

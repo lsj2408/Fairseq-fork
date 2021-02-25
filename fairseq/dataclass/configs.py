@@ -12,7 +12,6 @@ import torch
 from fairseq.dataclass.constants import (
     DATASET_IMPL_CHOICES,
     DDP_BACKEND_CHOICES,
-    DISTRIBUTED_WRAPPER_CHOICES,
     GENERATION_CONSTRAINTS_CHOICES,
     GENERATION_DECODING_FORMAT_CHOICES,
     LOG_FORMAT_CHOICES,
@@ -181,9 +180,16 @@ class CommonConfig(FairseqDataclass):
         default=False, metadata={"help": "enable autograd profiler emit_nvtx"}
     )
     reset_logging: bool = field(
-        default=True,
+        default=False,
         metadata={
             "help": "when using Hydra, reset the logging at the beginning of training"
+        },
+    )
+    suppress_crashes: bool = field(
+        default=False,
+        metadata={
+            "help": "suppress crashes when training with the hydra_train entry point so that the "
+                    "main method can return a value (useful for sweeps)"
         },
     )
 
@@ -229,7 +235,7 @@ class DistributedTrainingConfig(FairseqDataclass):
         },
     )
     ddp_backend: DDP_BACKEND_CHOICES = field(
-        default="c10d", metadata={"help": "DistributedDataParallel backend"}
+        default="pytorch_ddp", metadata={"help": "DistributedDataParallel backend"}
     )
     bucket_cap_mb: int = field(
         default=25, metadata={"help": "bucket size for reduction"}
@@ -245,7 +251,7 @@ class DistributedTrainingConfig(FairseqDataclass):
         default=False,
         metadata={
             "help": "disable unused parameter detection (not applicable to "
-            "no_c10d ddp-backend"
+            "--ddp-backend=legacy_ddp)"
         },
     )
     fast_stat_sync: bool = field(
@@ -265,9 +271,6 @@ class DistributedTrainingConfig(FairseqDataclass):
             "help": "Copy non-trainable parameters between GPUs, such as "
             "batchnorm population statistics"
         },
-    )
-    distributed_wrapper: DISTRIBUTED_WRAPPER_CHOICES = field(
-        default="DDP", metadata={"help": "DistributedDataParallel backend"}
     )
     slowmo_momentum: Optional[float] = field(
         default=None,

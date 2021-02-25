@@ -25,11 +25,13 @@ from fairseq import (
     utils,
 )
 from fairseq.data import iterators
+from fairseq.dataclass.configs import FairseqConfig
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
+from fairseq.distributed_utils import is_master
 from fairseq.logging import meters, metrics, progress_bar
 from fairseq.model_parallel.megatron_trainer import MegatronTrainer
 from fairseq.trainer import Trainer
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 
 logging.basicConfig(
@@ -41,11 +43,15 @@ logging.basicConfig(
 logger = logging.getLogger("fairseq_cli.train")
 
 
-def main(cfg: DictConfig) -> None:
+def main(cfg: FairseqConfig) -> None:
     if isinstance(cfg, argparse.Namespace):
         cfg = convert_namespace_to_omegaconf(cfg)
 
     utils.import_user_module(cfg.common)
+
+    if is_master(cfg.distributed_training) and "job_logging_cfg" in cfg:
+        # make hydra logging work with ddp (see # see https://github.com/facebookresearch/hydra/issues/1126)
+        logging.config.dictConfig(OmegaConf.to_container(cfg.job_logging_cfg))
 
     assert (
         cfg.dataset.max_tokens is not None or cfg.dataset.batch_size is not None
@@ -223,12 +229,14 @@ def train(
             else False
         ),
     )
+    progress.update_config(_flatten_config(cfg))
 
     trainer.begin_epoch(epoch_itr.epoch)
 
     valid_subsets = cfg.dataset.valid_subset.split(",")
     should_stop = False
     num_updates = trainer.get_num_updates()
+    logger.info("Start iterating over samples")
     for i, samples in enumerate(progress):
         with metrics.aggregate("train_inner"), torch.autograd.profiler.record_function(
             "train_step-%d" % i
@@ -262,6 +270,19 @@ def train(
     # reset epoch-level meters
     metrics.reset_meters("train")
     return valid_losses, should_stop
+
+
+def _flatten_config(cfg: DictConfig):
+    config = OmegaConf.to_container(cfg)
+    # remove any legacy Namespaces and replace with a single "args"
+    namespace = None
+    for k, v in list(config.items()):
+        if isinstance(v, argparse.Namespace):
+            namespace = v
+            del config[k]
+    if namespace is not None:
+        config["args"] = vars(namespace)
+    return config
 
 
 def validate_and_save(
@@ -358,7 +379,9 @@ def validate(
         logger.info('begin validation on "{}" subset'.format(subset))
 
         # Initialize data iterator
-        itr = trainer.get_valid_iterator(subset).next_epoch_itr(shuffle=False)
+        itr = trainer.get_valid_iterator(subset).next_epoch_itr(
+            shuffle=False, set_dataset_epoch=False  # use a fixed valid set
+        )
         if cfg.common.tpu:
             itr = utils.tpu_data_loader(itr)
         progress = progress_bar.progress_bar(

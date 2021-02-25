@@ -22,6 +22,7 @@ from tests.utils import (
     preprocess_lm_data,
     preprocess_summarization_data,
     preprocess_translation_data,
+    create_laser_data_and_config_json,
     train_translation_model,
 )
 
@@ -538,6 +539,62 @@ class TestTranslation(unittest.TestCase):
                     + dec_ltok_flag,
                 )
 
+    def test_translation_multi_simple_epoch_src_tgt_dict_spec(self):
+        # test the specification of explicit --src-dict and --tgt-dict
+        with contextlib.redirect_stdout(StringIO()):
+            enc_ltok_flag = ["--encoder-langtok", "src"]
+            dec_ltok_flag = ["--decoder-langtok"]
+            with tempfile.TemporaryDirectory(
+                "test_translation_multi_simple_epoch_dict"
+            ) as data_dir:
+                create_dummy_data(data_dir)
+                preprocess_translation_data(data_dir, extra_flags=[])
+                train_translation_model(
+                    data_dir,
+                    arch="transformer",
+                    task="translation_multi_simple_epoch",
+                    extra_flags=[
+                        "--source-dict",
+                        f"{data_dir}/dict.in.txt",
+                        "--target-dict",
+                        f"{data_dir}/dict.out.txt",
+                        "--encoder-layers",
+                        "2",
+                        "--decoder-layers",
+                        "2",
+                        "--encoder-embed-dim",
+                        "8",
+                        "--decoder-embed-dim",
+                        "8",
+                        "--sampling-method",
+                        "temperature",
+                        "--sampling-temperature",
+                        "1.5",
+                        "--virtual-epoch-size",
+                        "1000",
+                    ]
+                    + enc_ltok_flag
+                    + dec_ltok_flag,
+                    lang_flags=["--lang-pairs", "in-out"],
+                    run_validation=True,
+                    extra_valid_flags=enc_ltok_flag + dec_ltok_flag,
+                )
+                generate_main(
+                    data_dir,
+                    extra_flags=[
+                        "--task",
+                        "translation_multi_simple_epoch",
+                        "--lang-pairs",
+                        "in-out",
+                        "--source-lang",
+                        "in",
+                        "--target-lang",
+                        "out",
+                    ]
+                    + enc_ltok_flag
+                    + dec_ltok_flag,
+                )
+
     def test_transformer_cross_self_attention(self):
         with contextlib.redirect_stdout(StringIO()):
             with tempfile.TemporaryDirectory(
@@ -879,6 +936,65 @@ class TestTranslation(unittest.TestCase):
                 )
                 generate_main(data_dir)
 
+    def test_laser_lstm(self):
+        with contextlib.redirect_stdout(StringIO()):
+            with tempfile.TemporaryDirectory("test_laser_lstm") as data_dir:
+                laser_config_file = create_laser_data_and_config_json(data_dir)
+                train_translation_model(
+                    laser_config_file.name,
+                    "laser_lstm",
+                    [
+                        "--user-dir",
+                        "examples/laser/laser_src",
+                        "--weighting-alpha",
+                        "0.3",
+                        "--encoder-bidirectional",
+                        "--encoder-hidden-size",
+                        "512",
+                        "--encoder-layers",
+                        "5",
+                        "--decoder-layers",
+                        "1",
+                        "--encoder-embed-dim",
+                        "320",
+                        "--decoder-embed-dim",
+                        "320",
+                        "--decoder-lang-embed-dim",
+                        "32",
+                        "--save-dir",
+                        data_dir,
+                        "--disable-validation",
+                    ],
+                    task="laser",
+                    lang_flags=[],
+                )
+
+    def test_laser_transformer(self):
+        with contextlib.redirect_stdout(StringIO()):
+            with tempfile.TemporaryDirectory("test_laser_transformer") as data_dir:
+                laser_config_file = create_laser_data_and_config_json(data_dir)
+                train_translation_model(
+                    laser_config_file.name,
+                    "laser_transformer",
+                    [
+                        "--user-dir",
+                        "examples/laser/laser_src",
+                        "--weighting-alpha",
+                        "0.3",
+                        "--encoder-embed-dim",
+                        "320",
+                        "--decoder-embed-dim",
+                        "320",
+                        "--decoder-lang-embed-dim",
+                        "32",
+                        "--save-dir",
+                        data_dir,
+                        "--disable-validation",
+                    ],
+                    task="laser",
+                    lang_flags=[],
+                )
+
     def test_alignment_full_context(self):
         with contextlib.redirect_stdout(StringIO()):
             with tempfile.TemporaryDirectory("test_alignment") as data_dir:
@@ -1194,6 +1310,20 @@ class TestLanguageModeling(unittest.TestCase):
                     extra_valid_flags=task_flags,
                 )
                 eval_lm_main(data_dir, extra_flags=task_flags)
+                # Train with activation offloading
+                train_language_model(
+                    data_dir=data_dir,
+                    arch="transformer_xl",
+                    extra_flags=task_flags
+                    + [
+                        "--n-layer",
+                        "2",
+                        "--offload-activations",
+                    ],
+                    task="truncated_bptt_lm",
+                    run_validation=True,
+                    extra_valid_flags=task_flags,
+                )
 
 
 class TestMaskedLanguageModel(unittest.TestCase):
@@ -1533,44 +1663,67 @@ def read_last_log_entry(
 
 
 class TestActivationCheckpointing(unittest.TestCase):
-    def test_activation_checkpointing_does_not_change_metrics(self):
-        """--checkpoint-activations should not change loss"""
-        base_flags = [
-            "--encoder-layers",
-            "2",
-            "--decoder-layers",
-            "2",
-            "--encoder-embed-dim",
-            "8",
-            "--decoder-embed-dim",
-            "8",
-            "--restore-file",
-            "x.pt",
-            "--log-format",
-            "json",
-            "--log-interval",
-            "1",
-            "--max-update",
-            "2",
-        ]
+    base_flags = [
+        "--encoder-layers",
+        "2",
+        "--decoder-layers",
+        "2",
+        "--encoder-embed-dim",
+        "8",
+        "--decoder-embed-dim",
+        "8",
+        "--restore-file",
+        "x.pt",
+        "--log-format",
+        "json",
+        "--log-interval",
+        "1",
+        "--max-update",
+        "2",
+    ]
 
-        def _train(extra_flags):
-            with self.assertLogs() as logs:
-                train_translation_model(
-                    data_dir,
-                    "transformer_iwslt_de_en",
-                    base_flags + extra_flags,
-                    run_validation=True,
-                    extra_valid_flags=["--log-format", "json"],
-                )
-            return logs.records
+    def _train(self, data_dir, extra_flags):
+        with self.assertLogs() as logs:
+            train_translation_model(
+                data_dir,
+                "transformer_iwslt_de_en",
+                self.base_flags + extra_flags,
+                run_validation=True,
+                extra_valid_flags=["--log-format", "json"],
+            )
+        return logs.records
 
+    def test_activation_offloading_does_not_change_metrics(self):
+        """Neither ----checkpoint-activations nor --offload-activations should change loss"""
         with tempfile.TemporaryDirectory("test_transformer_with_act_cpt") as data_dir:
 
             create_dummy_data(data_dir, num_examples=20)
             preprocess_translation_data(data_dir)
-            ckpt_logs = _train(["--checkpoint-activations"])
-            baseline_logs = _train([])
+            offload_logs = self._train(data_dir, ["--offload-activations"])
+            baseline_logs = self._train(data_dir, [])
+
+            assert len(baseline_logs) == len(offload_logs)
+
+            baseline_valid_stats = read_last_log_entry(baseline_logs, "valid")
+            offload_valid_stats = read_last_log_entry(offload_logs, "valid")
+            baseline_train_stats = read_last_log_entry(baseline_logs, "train")
+            offload_train_stats = read_last_log_entry(offload_logs, "train")
+
+            assert (
+                baseline_train_stats["train_loss"] == offload_train_stats["train_loss"]
+            )
+            assert (
+                baseline_valid_stats["valid_loss"] == offload_valid_stats["valid_loss"]
+            )
+
+    def test_activation_checkpointing_does_not_change_metrics(self):
+        """--checkpoint-activations should not change loss"""
+
+        with tempfile.TemporaryDirectory("test_transformer_with_act_cpt") as data_dir:
+            create_dummy_data(data_dir, num_examples=20)
+            preprocess_translation_data(data_dir)
+            ckpt_logs = self._train(data_dir, ["--checkpoint-activations"])
+            baseline_logs = self._train(data_dir, [])
             assert len(baseline_logs) == len(ckpt_logs)
 
             baseline_train_stats = read_last_log_entry(baseline_logs, "train")
