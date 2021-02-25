@@ -11,7 +11,7 @@ python train.py \
   --task masked_lm --criterion masked_lm \
   --arch roberta_base --sample-break-mode complete_doc --shorten-method random_crop --tokens-per-sample 512 \
   --optimizer adam --adam-betas '(0.9, 0.999)' --adam-eps 1e-6 --clip-norm 1.0 \
-  --lr-scheduler polynomial_decay --lr 0.0005 --warmup-updates 10000 --total-num-update 1000000 \
+  --lr-scheduler polynomial_decay --lr 0.0003 --warmup-updates 10000 --total-num-update 1000000 \
   --dropout 0.1 --attention-dropout 0.1 --weight-decay 0.01 \
   --max-tokens 8192 --update-freq 2 --seed 100 \
   --mask-prob 0.15 \
