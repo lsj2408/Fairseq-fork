@@ -12,16 +12,15 @@ from fairseq.data.audio.speech_to_text_dataset import (
     S2TDataConfig,
     SpeechToTextDataset,
     SpeechToTextDatasetCreator,
-    get_features_or_waveform
 )
-from fairseq.tasks import LegacyFairseqTask, register_task
+from fairseq.tasks import FairseqTask, register_task
 
 
 logger = logging.getLogger(__name__)
 
 
 @register_task("speech_to_text")
-class SpeechToTextTask(LegacyFairseqTask):
+class SpeechToTextTask(FairseqTask):
     @staticmethod
     def add_args(parser):
         parser.add_argument("data", help="manifest root path")
@@ -139,11 +138,6 @@ class SpeechToTextTask(LegacyFairseqTask):
         logger.info(f"tokenizer: {self.data_cfg.bpe_tokenizer}")
         return encoders.build_bpe(Namespace(**self.data_cfg.bpe_tokenizer))
 
-    def get_interactive_tokens_and_lengths(self, lines, encode_fn):
-        n_frames = [get_features_or_waveform(p).shape[0] for p in lines]
-        return lines, n_frames
-
-    def build_dataset_for_inference(self, src_tokens, src_lengths, **kwargs):
-        return SpeechToTextDataset(
-            "interactive", False, self.data_cfg, src_tokens, src_lengths
-        )
+    @classmethod
+    def build_dataset_for_inference(cls, audio_paths, n_frames):
+        return SpeechToTextDataset("interactive", False, {}, audio_paths, n_frames)

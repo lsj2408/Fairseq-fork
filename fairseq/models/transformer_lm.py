@@ -141,13 +141,6 @@ class TransformerLanguageModelConfig(FairseqDataclass):
     no_scale_embedding: bool = field(
         default=False, metadata={"help": "if True, dont scale embeddings"}
     )
-    checkpoint_activations: bool = field(
-        default=False, metadata={"help": "checkpoint activations at each layer"}
-    )
-    offload_activations: bool = field(
-        default=False,
-        metadata={"help": "move checkpointed activations to CPU after they are used."},
-    )
     quant_noise_pq: float = field(
         default=0.0,
         metadata={"help": "iterative PQ quantization noise at training time"},
@@ -166,7 +159,7 @@ class TransformerLanguageModelConfig(FairseqDataclass):
     add_bos_token: bool = II("task.add_bos_token")
     tokens_per_sample: int = II("task.tokens_per_sample")
     max_target_positions: Optional[int] = II("task.max_target_positions")
-    tpu: bool = II("common.tpu")
+    tpu: bool = II("params.common.tpu")
 
 
 @register_model("transformer_lm", dataclass=TransformerLanguageModelConfig)
@@ -175,9 +168,6 @@ class TransformerLanguageModel(FairseqLanguageModel):
     def hub_models(cls):
         def moses_fastbpe(path):
             return {"path": path, "tokenizer": "moses", "bpe": "fastbpe"}
-
-        def spm(path):
-            return {"path": path, "tokenizer": "space", "bpe": "sentencepiece"}
 
         return {
             "transformer_lm.gbw.adaptive_huge": "https://dl.fbaipublicfiles.com/fairseq/models/lm/adaptive_lm_gbw_huge.tar.bz2",
@@ -190,18 +180,6 @@ class TransformerLanguageModel(FairseqLanguageModel):
             ),
             "transformer_lm.wmt19.ru": moses_fastbpe(
                 "https://dl.fbaipublicfiles.com/fairseq/models/lm/wmt19.ru.tar.bz2"
-            ),
-            "transformer_lm.wmt20.en": spm(
-                "https://dl.fbaipublicfiles.com/fairseq/models/lm/wmt20.en.tar.gz"
-            ),
-            "transformer_lm.wmt20.ta": spm(
-                "https://dl.fbaipublicfiles.com/fairseq/models/lm/wmt20.ta.tar.gz"
-            ),
-            "transformer_lm.wmt20.iu.news": spm(
-                "https://dl.fbaipublicfiles.com/fairseq/models/lm/wmt20.iu.news.tar.gz"
-            ),
-            "transformer_lm.wmt20.iu.nh": spm(
-                "https://dl.fbaipublicfiles.com/fairseq/models/lm/wmt20.iu.nh.tar.gz"
             ),
         }
 
@@ -268,6 +246,7 @@ class TransformerLanguageModel(FairseqLanguageModel):
         return embed_tokens
 
 
+@register_model_architecture("transformer_lm", "transformer_lm")
 def base_lm_architecture(args):
     # backward compatibility for older model checkpoints
     if hasattr(args, "no_tie_adaptive_proj"):
@@ -325,10 +304,6 @@ def base_lm_architecture(args):
 
     args.no_scale_embedding = getattr(args, "no_scale_embedding", False)
     args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
-    args.checkpoint_activations = getattr(args, "checkpoint_activations", False)
-    args.offload_activations = getattr(args, "offload_activations", False)
-    if args.offload_activations:
-        args.checkpoint_activations = True
 
 
 @register_model_architecture("transformer_lm", "transformer_lm_big")

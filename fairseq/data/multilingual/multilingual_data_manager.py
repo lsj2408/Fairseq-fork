@@ -39,9 +39,6 @@ from fairseq.utils import FileContentsAction, csv_str_list, eval_str_dict
 
 logger = logging.getLogger(__name__)
 
-SRC_DICT_NAME = 'src'
-TGT_DICT_NAME = 'tgt'
-
 
 def _lang_id(dic: Dictionary, lang: str):
     """Return language ID index."""
@@ -62,15 +59,6 @@ class MultilingualDatasetManager(object):
         self.args = args
         self.seed = args.seed
         self.lang_pairs = lang_pairs
-        self.extra_lang_pairs = (
-                list(
-                    {p for _, v in args.extra_lang_pairs.items() for p in v.split(",")}
-                )
-                if args.extra_lang_pairs
-                else []
-            )
-        self.src_langs = {p.split("-")[0] for p in args.lang_pairs + self.extra_lang_pairs}
-        self.tgt_langs = {p.split("-")[1] for p in args.lang_pairs + self.extra_lang_pairs}
         self.langs = langs
         self.dicts = dicts
         self.lang_dict = self.create_lang_dictionary(self.langs)
@@ -110,10 +98,6 @@ class MultilingualDatasetManager(object):
             "note that the ordering determines language token IDs; "
             "--langs and --lang-dict are two exclusive options",
         )
-        parser.add_argument('--source-dict', default=None, type=str,
-                            help='path to source dictionary; if specified it will override per language dictionary loading')
-        parser.add_argument('--target-dict', default=None, type=str,
-                            help='path to target dictionary; if specified it will override per language dictionary loading')
         parser.add_argument(
             "--lang-tok-style",
             default=LangTokStyle.multilingual.value,
@@ -252,7 +236,7 @@ class MultilingualDatasetManager(object):
         )
         parser.add_argument(
             "--virtual-epoch-size",
-            default=None,
+            default=1000000,
             type=int,
             help="virtual epoch size to speed up data loading",
         )
@@ -362,28 +346,7 @@ class MultilingualDatasetManager(object):
             ),
         )
 
-        def load_dictionary_and_postproc(path):
-            d = load_dictionary(path)
-            augment_dictionary(
-                dictionary=d,
-                language_list=language_list,
-                lang_tok_style=args.lang_tok_style,
-                langtoks_specs=args.langtoks_specs,
-                extra_data=args.extra_data,
-            )
-            return d
-
-        dicts = cls.load_all_dictionaries(args, language_list, load_dictionary_and_postproc, training)
-        return language_list, dicts, training
-
-    @classmethod
-    def load_all_dictionaries(cls, args, language_list, load_dictionary, training):
-        dicts = OrderedDict()
-        if args.source_dict is not None:
-            dicts[SRC_DICT_NAME] = load_dictionary(args.source_dict)
-        if args.target_dict is not None:
-            dicts[TGT_DICT_NAME] = load_dictionary(args.target_dict)
-
+        # load dictionaries
         if training:
             extra_lang_pairs = (
                 list(
@@ -392,52 +355,35 @@ class MultilingualDatasetManager(object):
                 if args.extra_lang_pairs
                 else []
             )
-            src_langs_to_load_dicts = sorted(
-                {p.split("-")[0] for p in (args.lang_pairs + extra_lang_pairs)}
-            )
-            tgt_langs_to_load_dicts = sorted(
-                {p.split("-")[1] for p in (args.lang_pairs + extra_lang_pairs)}
+            langs_to_load_dicts = sorted(
+                {x for p in args.lang_pairs + extra_lang_pairs for x in p.split("-")}
             )
         else:
-            src_langs_to_load_dicts = [args.source_lang]
-            tgt_langs_to_load_dicts = [args.target_lang]
+            langs_to_load_dicts = sorted([args.source_lang, args.target_lang])
 
+        dicts = OrderedDict()
         paths = utils.split_paths(args.data)
         assert len(paths) > 0
-
-        def load_dicts(langs_to_load_dicts):
-            for lang in langs_to_load_dicts:
+        for lang in langs_to_load_dicts:
+            if args.fixed_dictionary is not None:
+                dicts[lang] = load_dictionary(args.fixed_dictionary)
+            else:
                 dicts[lang] = load_dictionary(
                     os.path.join(paths[0], "dict.{}.txt".format(lang))
                 )
+                augment_dictionary(
+                    dictionary=dicts[lang],
+                    language_list=language_list,
+                    lang_tok_style=args.lang_tok_style,
+                    langtoks_specs=args.langtoks_specs,
+                    extra_data=args.extra_data,
+                )
             if len(dicts) > 0:
-                dict0 = next(iter(dicts.values()))
-                assert dicts[lang].pad() == dict0.pad()
-                assert dicts[lang].eos() == dict0.eos()
-                assert dicts[lang].unk() == dict0.unk()
+                assert dicts[lang].pad() == dicts[langs_to_load_dicts[0]].pad()
+                assert dicts[lang].eos() == dicts[langs_to_load_dicts[0]].eos()
+                assert dicts[lang].unk() == dicts[langs_to_load_dicts[0]].unk()
             logger.info("[{}] dictionary: {} types".format(lang, len(dicts[lang])))
-
-        if args.fixed_dictionary is not None:
-            fixed_dict = load_dictionary(args.fixed_dictionary)
-            dicts = {lang: fixed_dict for lang in src_langs_to_load_dicts + tgt_langs_to_load_dicts}
-        else:
-            if args.source_dict is None:
-                load_dicts(src_langs_to_load_dicts)
-            if args.target_dict is None:
-                load_dicts(tgt_langs_to_load_dicts)
-        return dicts
-
-    def get_source_dictionary(self, lang):
-        if self.args.source_dict is not None:
-            return self.dicts[SRC_DICT_NAME]
-        else:
-            return self.dicts[lang]
-
-    def get_target_dictionary(self, lang):
-        if self.args.target_dict is not None:
-            return self.dicts[TGT_DICT_NAME]
-        else:
-            return self.dicts[lang]
+        return language_list, dicts, training
 
     @classmethod
     def create_lang_dictionary(cls, langs):
@@ -472,7 +418,7 @@ class MultilingualDatasetManager(object):
                 lang=tgt_lang, lang_tok_style=self.args.lang_tok_style, spec=spec
             )
         return self.get_langtok_index(
-            langtok, self.get_source_dictionary(src_lang) if src_lang else self.get_target_dictionary(tgt_lang)
+            langtok, self.dicts[src_lang if src_lang else tgt_lang]
         )
 
     def get_decoder_langtok(self, tgt_lang, spec=None):
@@ -481,7 +427,7 @@ class MultilingualDatasetManager(object):
         langtok = get_lang_tok(
             lang=tgt_lang, lang_tok_style=self.args.lang_tok_style, spec=spec
         )
-        return self.get_langtok_index(langtok, self.get_target_dictionary(tgt_lang))
+        return self.get_langtok_index(langtok, self.dicts[tgt_lang])
 
     @classmethod
     def load_data(cls, path, vdict, impl):
@@ -814,9 +760,9 @@ class MultilingualDatasetManager(object):
         if self.args.lang_tok_replacing_bos_eos:
             ds = self.alter_dataset_langtok(
                 langpair_ds,
-                src_eos=self.get_source_dictionary(src).eos() if src else self.get_target_dictionary(tgt).eos(),
+                src_eos=self.dicts[src if src else tgt].eos(),
                 src_lang=src,
-                tgt_eos=self.get_target_dictionary(tgt).eos(),
+                tgt_eos=self.dicts[tgt].eos(),
                 tgt_lang=tgt,
                 src_langtok_spec=src_langtok_spec,
                 tgt_langtok_spec=tgt_langtok_spec,
@@ -960,11 +906,11 @@ class MultilingualDatasetManager(object):
                         "data_path": data_path,
                         "split": split,
                         "src": src,
-                        "src_dict": self.get_source_dictionary(src)
+                        "src_dict": self.dicts[src]
                         if src and data_category != "mono_dae"
                         else None,
                         "tgt": tgt,
-                        "tgt_dict": self.get_target_dictionary(tgt),
+                        "tgt_dict": self.dicts[tgt],
                         "data_category": data_category,
                         "langtok_spec": lang_tok_spec,
                     }
@@ -1094,38 +1040,3 @@ class MultilingualDatasetManager(object):
             )
         else:
             return self.load_into_concat_dataset(split, datasets, data_param_list)
-
-    def load_sampled_multi_dataset(
-        self, split, training, epoch=0, combine=False, shard_epoch=None, **kwargs
-    ):
-        datasets, data_param_list = self.load_split_datasets(
-            split, training, epoch, combine, shard_epoch=shard_epoch, **kwargs
-        )
-        if training and split == getattr(self.args, "train_subset", None):
-            sample_ratios = self.get_sampling_ratios(data_param_list, datasets, epoch)
-            return SampledMultiDataset(
-                OrderedDict(datasets),
-                epoch=epoch,
-                # valid and test datasets will be degerate to concating datasets:
-                sampling_ratios=sample_ratios,
-                eval_key=None,
-                collate_format=CollateFormat.single,
-                virtual_size=self.args.virtual_data_size,
-                split=split,
-                # if not using lang_tok altering, simplified to use the same collater
-                shared_collater=self._shared_collater(),
-            )
-        else:
-            return self.load_into_concat_dataset(split, datasets, data_param_list)
-
-    def load_dataset(
-        self, split, training, epoch=0, combine=False, shard_epoch=None, **kwargs
-    ):
-        if self.args.virtual_epoch_size is None:
-            return self.load_sampled_multi_dataset(
-                split, training, epoch, combine, shard_epoch, **kwargs
-            )
-        else:
-            return self.load_sampled_multi_epoch_dataset(
-                split, training, epoch, combine, shard_epoch, **kwargs
-            )

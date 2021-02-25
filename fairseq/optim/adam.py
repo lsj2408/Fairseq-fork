@@ -5,7 +5,6 @@
 
 import logging
 import math
-from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import List
 
@@ -15,7 +14,7 @@ import torch.optim
 from fairseq.dataclass import FairseqDataclass
 from fairseq.optim import FairseqOptimizer, register_optimizer
 from fairseq.optim.fused_adam import get_fused_adam_class
-from omegaconf import II, DictConfig
+from omegaconf import II
 
 
 logger = logging.getLogger(__name__)
@@ -34,8 +33,8 @@ class FairseqAdamConfig(FairseqDataclass):
         default=False, metadata={"help": "Use fairseq.optim.adam.Adam"}
     )
     # TODO common vars below in parent
-    tpu: bool = II("common.tpu")
-    lr: List[float] = II("optimization.lr")
+    tpu: bool = II("params.common.tpu")
+    lr: List[float] = II("params.optimization.lr")
 
 
 @register_optimizer("adam", dataclass=FairseqAdamConfig)
@@ -47,15 +46,15 @@ class FairseqAdam(FairseqOptimizer):
     analogous to torch.optim.AdamW from PyTorch.
     """
 
-    def __init__(self, cfg: DictConfig, params):
-        super().__init__(cfg)
+    def __init__(self, args, params):
+        super().__init__(args)
         fused_adam_cls = get_fused_adam_class()
         use_fused_adam = (
-            not getattr(cfg, "use_old_adam", False)
+            not getattr(args, "use_old_adam", False)
             and fused_adam_cls is not None
             and torch.cuda.is_available()
         )
-        if getattr(cfg, "tpu", False):
+        if getattr(args, "tpu", False):
             # on TPUs we use the Adam defined here, since it
             # automatically casts gradients to FP32
             self._optimizer = Adam(params, **self.optimizer_config)
@@ -74,12 +73,10 @@ class FairseqAdam(FairseqOptimizer):
         different learning rate.
         """
         return {
-            "lr": self.cfg.lr[0]
-            if isinstance(self.cfg.lr, Collection)
-            else self.cfg.lr,
-            "betas": eval(self.cfg.adam_betas),
-            "eps": self.cfg.adam_eps,
-            "weight_decay": self.cfg.weight_decay,
+            "lr": self.args.lr[0],
+            "betas": eval(self.args.adam_betas),
+            "eps": self.args.adam_eps,
+            "weight_decay": self.args.weight_decay,
         }
 
     def average_params(self):
@@ -95,7 +92,7 @@ class FairseqAdam(FairseqOptimizer):
 
 
 class Adam(torch.optim.Optimizer):
-    r"""Implements Adam algorithm.
+    """Implements Adam algorithm.
 
     This implementation is modified from torch.optim.Adam based on:
     `Fixed Weight Decay Regularization in Adam`
@@ -103,7 +100,7 @@ class Adam(torch.optim.Optimizer):
 
     It has been proposed in `Adam: A Method for Stochastic Optimization`_.
 
-    Args:
+    Arguments:
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups
         lr (float, optional): learning rate (default: 1e-3)
@@ -146,7 +143,7 @@ class Adam(torch.optim.Optimizer):
     def step(self, closure=None):
         """Performs a single optimization step.
 
-        Args:
+        Arguments:
             closure (callable, optional): A closure that reevaluates the model
                 and returns the loss.
         """

@@ -72,10 +72,6 @@ class ModelParallelTransformerLanguageModel(TransformerLanguageModel):
         )
         return cls(decoder)
 
-    @staticmethod
-    def add_args(parser):
-        TransformerLanguageModel.add_args(parser)
-
     @classmethod
     def build_embedding(cls, args, dictionary, embed_dim, path=None):
         def _vocab_init(tensor, **kwargs):

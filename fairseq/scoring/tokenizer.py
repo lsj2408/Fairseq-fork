@@ -5,8 +5,6 @@
 
 import unicodedata
 
-from fairseq.dataclass import ChoiceEnum
-
 
 class EvaluationTokenizer(object):
     """A generic evaluation-time tokenizer, which leverages built-in tokenizers
@@ -24,7 +22,7 @@ class EvaluationTokenizer(object):
 
     SPACE = chr(32)
     SPACE_ESCAPE = chr(9601)
-    ALL_TOKENIZER_TYPES = ChoiceEnum(["none", "13a", "intl", "zh", "ja-mecab"])
+    ALL_TOKENIZER_TYPES = ["none", "13a", "intl", "zh", "ja-mecab"]
 
     def __init__(
         self,
@@ -35,7 +33,7 @@ class EvaluationTokenizer(object):
     ):
         from sacrebleu.tokenizers import TOKENIZERS
 
-        assert tokenizer_type in TOKENIZERS, f"{tokenizer_type}, {TOKENIZERS}"
+        assert tokenizer_type in self.ALL_TOKENIZER_TYPES
         self.lowercase = lowercase
         self.punctuation_removal = punctuation_removal
         self.character_tokenization = character_tokenization

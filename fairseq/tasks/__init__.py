@@ -7,10 +7,11 @@
 import argparse
 import importlib
 import os
+from argparse import Namespace
+from typing import Union
 
 from fairseq.dataclass import FairseqDataclass
-from fairseq.dataclass.utils import merge_with_parent, populate_dataclass
-from hydra.core.config_store import ConfigStore
+from omegaconf import DictConfig
 
 from .fairseq_task import FairseqTask, LegacyFairseqTask  # noqa
 
@@ -21,27 +22,10 @@ TASK_REGISTRY = {}
 TASK_CLASS_NAMES = set()
 
 
-def setup_task(cfg: FairseqDataclass, **kwargs):
-    task = None
-    task_name = getattr(cfg, "task", None)
-
-    if isinstance(task_name, str):
-        # legacy tasks
-        task = TASK_REGISTRY[task_name]
-        if task_name in TASK_DATACLASS_REGISTRY:
-            dc = TASK_DATACLASS_REGISTRY[task_name]
-            cfg = populate_dataclass(dc(), cfg)
-    else:
-        task_name = getattr(cfg, "_name", None)
-
-        if task_name and task_name in TASK_DATACLASS_REGISTRY:
-            dc = TASK_DATACLASS_REGISTRY[task_name]
-            cfg = merge_with_parent(dc(), cfg)
-            task = TASK_REGISTRY[task_name]
-
-    assert task is not None, f"Could not infer task type from {cfg}. Available tasks: {TASK_REGISTRY.keys()}"
-
-    return task.setup_task(cfg, **kwargs)
+def setup_task(task_cfg: Union[DictConfig, Namespace], **kwargs):
+    if isinstance(task_cfg, DictConfig):
+        return TASK_REGISTRY[task_cfg._name].setup_task(task_cfg, **kwargs)
+    return TASK_REGISTRY[task_cfg.task].setup_task(task_cfg, **kwargs)
 
 
 def register_task(name, dataclass=None):
@@ -86,13 +70,7 @@ def register_task(name, dataclass=None):
             )
 
         cls.__dataclass = dataclass
-        if dataclass is not None:
-            TASK_DATACLASS_REGISTRY[name] = dataclass
-
-            cs = ConfigStore.instance()
-            node = dataclass()
-            node._name = name
-            cs.store(name=name, group="task", node=node, provider="fairseq")
+        TASK_DATACLASS_REGISTRY[name] = dataclass
 
         return cls
 

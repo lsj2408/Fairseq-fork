@@ -8,12 +8,11 @@ import argparse
 import copy
 import logging
 import os
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Tuple
 
 import torch
 from fairseq import utils
 from fairseq.data import encoders
-from omegaconf import open_dict
 from torch import nn
 
 
@@ -60,8 +59,6 @@ def from_pretrained(
         "code": "bpe_codes",
         "bpecodes": "bpe_codes",
         "sentencepiece.bpe.model": "sentencepiece_model",
-        "merges.txt": "bpe_merges",
-        "vocab.json": "bpe_vocab",
     }.items():
         path = os.path.join(model_path, file)
         if os.path.exists(path):
@@ -88,9 +85,9 @@ class GeneratorHubInterface(nn.Module):
     translation or language model.
     """
 
-    def __init__(self, cfg, task, models):
+    def __init__(self, args, task, models):
         super().__init__()
-        self.cfg = cfg
+        self.args = args
         self.task = task
         self.models = nn.ModuleList(models)
         self.src_dict = task.source_dictionary
@@ -98,14 +95,14 @@ class GeneratorHubInterface(nn.Module):
 
         # optimize model for generation
         for model in self.models:
-            model.prepare_for_inference_(cfg)
+            model.prepare_for_inference_(args)
 
         # Load alignment dictionary for unknown word replacement
         # (None if no unknown word replacement, empty if no path to align dictionary)
-        self.align_dict = utils.load_align_dict(cfg.generation.replace_unk)
+        self.align_dict = utils.load_align_dict(getattr(args, "replace_unk", None))
 
-        self.tokenizer = encoders.build_tokenizer(cfg.tokenizer)
-        self.bpe = encoders.build_bpe(cfg.bpe)
+        self.tokenizer = encoders.build_tokenizer(args)
+        self.bpe = encoders.build_bpe(args)
 
         self.max_positions = utils.resolve_max_positions(
             self.task.max_positions(), *[model.max_positions() for model in models]
@@ -159,11 +156,10 @@ class GeneratorHubInterface(nn.Module):
             )[0]
 
         # build generator using current args as well as any kwargs
-        gen_args = copy.deepcopy(self.cfg.generation)
-        with open_dict(gen_args):
-            gen_args.beam = beam
-            for k, v in kwargs.items():
-                setattr(gen_args, k, v)
+        gen_args = copy.copy(self.args)
+        gen_args.beam = beam
+        for k, v in kwargs.items():
+            setattr(gen_args, k, v)
         generator = self.task.build_generator(self.models, gen_args)
 
         inference_step_args = inference_step_args or {}
@@ -182,7 +178,7 @@ class GeneratorHubInterface(nn.Module):
         if verbose:
 
             def getarg(name, default):
-                return getattr(gen_args, name, getattr(self.cfg, name, default))
+                return getattr(gen_args, name, getattr(self.args, name, default))
 
             for source_tokens, target_hypotheses in zip(tokenized_sentences, outputs):
                 src_str_with_unk = self.string(source_tokens)
@@ -257,8 +253,8 @@ class GeneratorHubInterface(nn.Module):
         lengths = torch.LongTensor([t.numel() for t in tokens])
         batch_iterator = self.task.get_batch_iterator(
             dataset=self.task.build_dataset_for_inference(tokens, lengths),
-            max_tokens=self.cfg.dataset.max_tokens,
-            max_sentences=self.cfg.dataset.batch_size,
+            max_tokens=self.args.max_tokens,
+            max_sentences=self.args.batch_size,
             max_positions=self.max_positions,
             ignore_invalid_inputs=skip_invalid_size_inputs,
             disable_iterator_cache=True,
