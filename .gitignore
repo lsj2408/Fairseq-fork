@@ -118,6 +118,9 @@ ENV/
 # data
 data-bin/
 
+# examples
+examples/
+
 # reranking
 /examples/reranking/rerank_data
 
