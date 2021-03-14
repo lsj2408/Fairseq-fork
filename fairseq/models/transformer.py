@@ -25,6 +25,7 @@ from fairseq.modules import (
     PositionalEmbedding,
     SinusoidalPositionalEmbedding,
     TransformerDecoderLayer,
+    DyTransformerDecoderLayer,
     TransformerEncoderLayer,
 )
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
@@ -604,7 +605,12 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         self.layers.extend(
             [
                 self.build_decoder_layer(args, no_encoder_attn)
-                for _ in range(args.decoder_layers)
+                for _ in range(args.decoder_layers - 1)
+            ]
+        )
+        self.layers.extend(
+            [
+                self.build_dynamic_decoder_layer(args, no_encoder_attn)
             ]
         )
         self.num_layers = len(self.layers)
@@ -651,6 +657,8 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
     def build_decoder_layer(self, args, no_encoder_attn=False):
         return TransformerDecoderLayer(args, no_encoder_attn)
+    def build_dynamic_decoder_layer(self, args, no_encoder_attn=False):
+        return DyTransformerDecoderLayer(args, no_encoder_attn)
 
     def forward(
         self,
