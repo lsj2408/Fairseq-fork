@@ -602,16 +602,22 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             self.layers = LayerDropModuleList(p=self.decoder_layerdrop)
         else:
             self.layers = nn.ModuleList([])
-        self.layers.extend(
-            [
-                self.build_dynamic_decoder_layer(args, no_encoder_attn)
-                for _ in range(2)
-            ]
-        )
+        #self.layers.extend(
+        #    [
+        #        self.build_dynamic_decoder_layer(args, no_encoder_attn)
+        #        for _ in range(2)
+        #    ]
+        #)
         self.layers.extend(
             [
                 self.build_decoder_layer(args, no_encoder_attn)
                 for _ in range(args.decoder_layers - 2)
+            ]
+        )
+        self.layers.extend(
+            [
+                self.build_dynamic_decoder_layer(args, no_encoder_attn)
+                for _ in range(2)
             ]
         )
         self.num_layers = len(self.layers)
