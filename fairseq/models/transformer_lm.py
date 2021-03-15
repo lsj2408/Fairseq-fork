@@ -262,7 +262,7 @@ def base_lm_architecture(args):
     args.attention_dropout = getattr(args, "attention_dropout", 0.0)
 
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 512)
-    args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 2048)
+    args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 512)
     args.decoder_layers = getattr(args, "decoder_layers", 6)
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 8)
     args.adaptive_softmax_cutoff = getattr(args, "adaptive_softmax_cutoff", None)

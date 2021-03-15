@@ -397,7 +397,7 @@ class TransformerDecoderLayer(nn.Module):
         x = self.activation_dropout_module(x)
         
         tgt_len, bsz, ffn_embed_dim = x.shape
-        x_reduce = self.reduce_layer(x)
+        x_reduce = torch.softmax(self.reduce_layer(x), dim=-1)
         x_dynamic_weight = self.fc2_dynamic_weight(x_reduce)
         x_dynamic_bias = self.fc2_dynamic_bias(x_reduce)
         _, __, ffn_model_dim = x_dynamic_weight.shape
